@@ -295,6 +295,7 @@ else:
                 labels=df_graf["Campanha"], 
                 values=df_graf["Valor"], 
                 hole=0.65, 
+                domain=dict(x=[0, 0.72]),
                 marker=dict(colors=cores, line=dict(color="#ffffff", width=2)), 
                 textinfo="percent", 
                 hovertemplate="<b>%{label}</b><br>Sugerido: R$ %{value:,.2f}<br>%{percent}<extra></extra>"
@@ -306,22 +307,22 @@ else:
                 plot_bgcolor='rgba(0,0,0,0)', 
                 showlegend=True, 
                 legend=dict(
-                    font=dict(family='Inter, sans-serif', size=11, color="#475569"), 
+                    font=dict(family='Inter, sans-serif', size=10, color="#475569"), 
                     bgcolor='rgba(0,0,0,0)',
-                    orientation="h",
-                    yanchor="bottom",
-                    y=-0.22,
-                    xanchor="center",
-                    x=0.5
+                    orientation="v",
+                    yanchor="middle",
+                    y=0.5,
+                    xanchor="left",
+                    x=0.75
                 ), 
                 font=dict(family='Inter, sans-serif'), 
                 annotations=[dict(
-                    text=f"<span style='font-size:10px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;'>Distribuição</span><br><b style='font-size:18px;color:#0f172a;font-weight:800;'>R$ {verba_diaria_resto:,.0f}</b><br><span style='font-size:10px;color:#64748b;'>/dia</span>", 
-                    x=0.5, 
+                    text=f"<span style='font-size:9px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:0.05em;'>Distribuição</span><br><b style='font-size:16px;color:#0f172a;font-weight:800;'>R$ {verba_diaria_resto:,.0f}</b><br><span style='font-size:9px;color:#64748b;'>/dia</span>", 
+                    x=0.36, 
                     y=0.5, 
                     showarrow=False
                 )], 
-                height=300
+                height=340
             )
             grafico_html = fig.to_html(full_html=False, include_plotlyjs="cdn", config={"displayModeBar": False})
 
