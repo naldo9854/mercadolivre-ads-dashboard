@@ -359,6 +359,9 @@ else:
                 <td style='text-align:right; font-weight:700; color:#2563eb;'>{r['Sugestão/dia']}</td>
             </tr>
             """
+        dist_rec = {}
+        for r in registros:
+            dist_rec[r["Recomendação"]] = dist_rec.get(r["Recomendação"], 0) + 1
 
         mini_cards = ""
         for label in ["🚀 AUMENTAR ORÇAMENTO", "✅ MANTER", "👀 ACOMPANHAR", "👻 FANTASMA", "🔴 REDUZIR / PAUSAR", "⚠️ ALERTA CONVERSÃO"]:
