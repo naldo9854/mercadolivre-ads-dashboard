@@ -308,22 +308,90 @@ else:
                 registros.append(reg)
                 all_campaign_records.append(reg)
 
-            # Distribuição de orçamento
-            com_dados = [r for r in registros if r["_acos_7d"] is not None or r["_vendas"] > 0]
+            # ── ALOCAÇÃO DINÂMICA DE VERBA COM TETO DE RISCO (MAX/MIN CAP) ──
             sugestoes_grafico = []
-
-            if com_dados and verba_diaria_resto > 0:
-                for r in com_dados:
-                    acos_val = r["_acos_7d"] if r["_acos_7d"] is not None else 999
-                    r["_score"] = (1 / (acos_val + 0.1)) * 10 + r["_vendas"]
+            elegiveis = []
+            
+            for r in registros:
+                r["Sugestão/dia"] = "—"
+                r["_sugestao_val"] = 0.0
+                rec = r["Recomendação"]
                 
-                total_score = sum(r.get("_score", 0) for r in com_dados)
+                # Definir pesos por Tiers de Performance
+                if "AUMENTAR" in rec or "SUSTENTAR" in rec:
+                    weight = 3.0
+                    eligible = True
+                elif "MANTER" in rec:
+                    weight = 1.5
+                    eligible = True
+                elif "ACOMPANHAR" in rec:
+                    weight = 0.5
+                    eligible = True
+                else:
+                    weight = 0.0
+                    eligible = False
+                    
+                if eligible:
+                    elegiveis.append({"reg": r, "weight": weight, "allocated": 0.0, "capped": False})
+                    
+            n_elegiveis = len(elegiveis)
+            if n_elegiveis > 0 and verba_diaria_resto > 0:
+                # Definir Piso Mínimo (Min Cap) de R$ 10,00 (ou o máximo possível se a verba for muito baixa)
+                piso = 10.0
+                if verba_diaria_resto < piso * n_elegiveis:
+                    piso = verba_diaria_resto / n_elegiveis
+                    
+                for el in elegiveis:
+                    el["allocated"] = piso
+                    
+                verba_restante_dist = verba_diaria_resto - (piso * n_elegiveis)
+                max_cap = 0.35 * verba_diaria_resto
                 
-                for r in registros:
-                    if "_score" in r and total_score > 0:
-                        val = r["_score"] / total_score * verba_diaria_resto
-                        r["Sugestão/dia"] = f"R$ {val:,.2f}"
-                        sugestoes_grafico.append({"Campanha": r["Campanha"], "Valor": round(val, 2)})
+                # Loop de distribuição dos pesos com respeito ao teto (Max Cap)
+                while verba_restante_dist > 0.01:
+                    ativas = [el for el in elegiveis if not el["capped"] and el["weight"] > 0]
+                    if not ativas:
+                        break
+                        
+                    soma_pesos = sum(el["weight"] for el in ativas)
+                    if soma_pesos == 0:
+                        break
+                        
+                    excesso_verba = 0.0
+                    distribuido_nesta_rodada = False
+                    
+                    for el in ativas:
+                        share = (el["weight"] / soma_pesos) * verba_restante_dist
+                        novo_valor = el["allocated"] + share
+                        if novo_valor >= max_cap:
+                            excesso_verba += (novo_valor - max_cap)
+                            el["allocated"] = max_cap
+                            el["capped"] = True
+                            distribuido_nesta_rodada = True
+                        else:
+                            el["allocated"] = novo_valor
+                            distribuido_nesta_rodada = True
+                            
+                    if not distribuido_nesta_rodada:
+                        break
+                    verba_restante_dist = excesso_verba
+                    
+                # Normalização Matemática e Ajuste Fino de Centavos
+                soma_sugerido = sum(el["allocated"] for el in elegiveis)
+                diferenca = verba_diaria_resto - soma_sugerido
+                
+                if abs(diferenca) > 0.01:
+                    candidatos = [el for el in elegiveis if not el["capped"]]
+                    if not candidatos:
+                        candidatos = elegiveis
+                    candidatos[0]["allocated"] += diferenca
+                    
+                # Gravar de volta nos registros da campanha e no gráfico
+                for el in elegiveis:
+                    val = el["allocated"]
+                    el["reg"]["Sugestão/dia"] = f"R$ {val:,.2f}"
+                    el["reg"]["_sugestao_val"] = val
+                    sugestoes_grafico.append({"Campanha": el["reg"]["Campanha"], "Valor": round(val, 2)})
 
             total_custo_d1   = sum(r["_custo"] for r in registros)
             total_receita_d1 = sum(r["_receita"] for r in registros)
