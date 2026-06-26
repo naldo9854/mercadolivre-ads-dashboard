@@ -1030,21 +1030,21 @@ else:
 </div>
 
 <script>
-  function openTab(evt, tabId) {
+  function openTab(evt, tabId) {{
     var i, tabcontent, tablinks;
     tabcontent = document.getElementsByClassName("tab-details-content");
-    for (i = 0; i < tabcontent.length; i++) {
+    for (i = 0; i < tabcontent.length; i++) {{
       tabcontent[i].style.display = "none";
       tabcontent[i].classList.remove("active");
-    }
+    }}
     tablinks = document.getElementsByClassName("tab-btn");
-    for (i = 0; i < tablinks.length; i++) {
+    for (i = 0; i < tablinks.length; i++) {{
       tablinks[i].classList.remove("active");
-    }
+    }}
     document.getElementById(tabId).style.display = "block";
     document.getElementById(tabId).classList.add("active");
     evt.currentTarget.classList.add("active");
-  }
+  }}
 </script>
 
 </body>
