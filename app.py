@@ -181,6 +181,28 @@ else:
         camp_ciclo  = buscar_campanhas_api(data_ini_ciclo, data_hoje_str)
         gasto_ciclo = sum(float(c.get("metrics", {}).get("cost", 0) or 0) for c in camp_ciclo)
         camp_ontem  = buscar_campanhas_api(data_ontem_str, data_ontem_str)
+        
+        # Buscar janela de 7 dias
+        data_7d_ini_str = (hoje - timedelta(days=7)).strftime("%Y-%m-%d")
+        data_7d_fim_str = (hoje - timedelta(days=1)).strftime("%Y-%m-%d")
+        camp_7d = buscar_campanhas_api(data_7d_ini_str, data_7d_fim_str)
+        
+        # Mapear ACOS 7D
+        acos_7d_map = {}
+        for c_7d in camp_7d:
+            c_id = c_7d.get("id")
+            m_7d = c_7d.get("metrics", {})
+            custo_7d = float(m_7d.get("cost", 0) or 0)
+            receita_7d = float(m_7d.get("total_amount", 0) or 0)
+            acos_api_7d = m_7d.get("acos")
+            
+            if acos_api_7d is not None and float(acos_api_7d) > 0:
+                acos_7d_val = float(acos_api_7d)
+            elif receita_7d > 0:
+                acos_7d_val = (custo_7d / receita_7d) * 100
+            else:
+                acos_7d_val = None
+            acos_7d_map[c_id] = acos_7d_val
 
         # Cálculos Financeiros
         verba_diaria_ref   = verba_mensal_input / dias_totais
@@ -229,22 +251,28 @@ else:
             acos_api  = m.get("acos")
 
             if acos_api is not None and float(acos_api) > 0:
-                acos = float(acos_api)
+                acos_ontem = float(acos_api)
             elif receita > 0:
-                acos = (custo / receita) * 100
+                acos_ontem = (custo / receita) * 100
             else:
-                acos = None
+                acos_ontem = None
 
-            if cliques > 50 and vendas == 0:
+            # Obter ACOS de 7 dias mapeado
+            acos_7d = acos_7d_map.get(c.get("id"))
+
+            # Regras de recomendação baseadas em ACOS 7D e suporte a SUSTENTAR
+            if vendas == 0 and acos_7d is not None and acos_7d < 20.0:
+                rec = "🛡️ SUSTENTAR (Bom histórico)"
+            elif cliques > 50 and vendas == 0:
                 rec = "⚠️ ALERTA CONVERSÃO"
-            elif acos is None:
+            elif acos_7d is None:
                 if cliques > 0:
                     rec = "👀 ACOMPANHAR"
                 else:
                     rec = "👻 FANTASMA"
-            elif acos < 10:
+            elif acos_7d < 10:
                 rec = "🚀 AUMENTAR ORÇAMENTO"
-            elif acos <= 25:
+            elif acos_7d <= 25:
                 rec = "✅ MANTER"
             else:
                 rec = "🔴 REDUZIR / PAUSAR"
@@ -253,18 +281,19 @@ else:
                 "Campanha": nome, "Status": status, "Orç. Atual": f"R$ {orcamento:,.2f}",
                 "Custo": round(custo, 2), "Receita": round(receita, 2),
                 "Cliques": cliques, "Vendas": vendas,
-                "ACOS": f"{acos:.2f}%" if acos is not None else "N/A",
+                "ACOS Ontem": f"{acos_ontem:.2f}%" if acos_ontem is not None else "N/A",
+                "ACOS 7D": f"{acos_7d:.2f}%" if acos_7d is not None else "N/A",
                 "Recomendação": rec, "Sugestão/dia": "—",
-                "_acos": acos, "_vendas": vendas, "_custo": custo, "_receita": receita,
+                "_acos_ontem": acos_ontem, "_acos_7d": acos_7d, "_vendas": vendas, "_custo": custo, "_receita": receita,
             })
 
         # Distribuição de orçamento
-        com_dados = [r for r in registros if r["_acos"] is not None or r["_vendas"] > 0]
+        com_dados = [r for r in registros if r["_acos_7d"] is not None or r["_vendas"] > 0]
         sugestoes_grafico = []
 
         if com_dados and verba_diaria_resto > 0:
             for r in com_dados:
-                acos_val = r["_acos"] if r["_acos"] is not None else 999
+                acos_val = r["_acos_7d"] if r["_acos_7d"] is not None else 999
                 r["_score"] = (1 / (acos_val + 0.1)) * 10 + r["_vendas"]
             
             total_score = sum(r.get("_score", 0) for r in com_dados)
@@ -334,6 +363,7 @@ else:
             if "ALERTA"     in rec: return "#fffbeb", "#d97706", "#fde68a"
             if "ACOMPANHAR" in rec: return "#f0f9ff", "#0284c7", "#b3e5fc"
             if "FANTASMA"   in rec: return "#f8fafc", "#64748b", "#e2e8f0"
+            if "SUSTENTAR"  in rec: return "#f5f3ff", "#7c3aed", "#ddd6fe"
             return "#f8fafc", "#475569", "#e2e8f0"
 
         linhas_tabela = ""
@@ -355,7 +385,8 @@ else:
                 <td style='text-align:right;'>R$ {r['Receita']:,.2f}</td>
                 <td style='text-align:right;'>{r['Cliques']:,}</td>
                 <td style='text-align:right;'>{r['Vendas']}</td>
-                <td style='text-align:right; font-weight: 600;'>{r['ACOS']}</td>
+                <td style='text-align:right; font-weight: 500;'>{r['ACOS Ontem']}</td>
+                <td style='text-align:right; font-weight: 600; color: #1e3a8a;'>{r['ACOS 7D']}</td>
                 <td style='text-align:center;'><span class='rec-badge' style='background:{bg};color:{fg};border:1px solid {border};'>{r['Recomendação']}</span></td>
                 <td style='text-align:right; font-weight:700; color:#2563eb;'>{r['Sugestão/dia']}</td>
             </tr>
@@ -365,10 +396,10 @@ else:
             dist_rec[r["Recomendação"]] = dist_rec.get(r["Recomendação"], 0) + 1
 
         mini_cards = ""
-        for label in ["🚀 AUMENTAR ORÇAMENTO", "✅ MANTER", "👀 ACOMPANHAR", "👻 FANTASMA", "🔴 REDUZIR / PAUSAR", "⚠️ ALERTA CONVERSÃO"]:
+        for label in ["🚀 AUMENTAR ORÇAMENTO", "✅ MANTER", "🛡️ SUSTENTAR (Bom histórico)", "👀 ACOMPANHAR", "👻 FANTASMA", "🔴 REDUZIR / PAUSAR", "⚠️ ALERTA CONVERSÃO"]:
             if label in dist_rec:
                 bg, fg, border = cor_rec(label)
-                clean_label = label.replace("🚀 ", "").replace("✅ ", "").replace("👀 ", "").replace("👻 ", "").replace("🔴 ", "").replace("⚠️ ", "")
+                clean_label = label.replace("🚀 ", "").replace("✅ ", "").replace("🛡️ ", "").replace("👀 ", "").replace("👻 ", "").replace("🔴 ", "").replace("⚠️ ", "")
                 mini_cards += f"""
                 <div class='mini-card' style='background:{bg};border:1px solid {border};border-left:3px solid {fg};'>
                     <span class='mini-val' style='color:{fg};'>{dist_rec[label]}</span>
@@ -761,7 +792,8 @@ else:
                   <th style="text-align:right;">Receita</th>
                   <th style="text-align:right;">Cliques</th>
                   <th style="text-align:right;">Vendas</th>
-                  <th style="text-align:right;">ACOS</th>
+                  <th style="text-align:right;">ACOS Ontem</th>
+                  <th style="text-align:right;">ACOS 7D</th>
                   <th style="text-align:center;">Ação Recomendada</th>
                   <th style="text-align:right;">Sugestão/Dia</th>
                 </tr>
@@ -787,7 +819,7 @@ else:
         components.html(html, height=1400, scrolling=True)
 
         # Exportar CSV no Streamlit
-        cols_csv = ["Campanha","Status","Orç. Atual","Custo","Receita","Cliques","Vendas","ACOS","Recomendação","Sugestão/dia"]
+        cols_csv = ["Campanha","Status","Orç. Atual","Custo","Receita","Cliques","Vendas","ACOS Ontem","ACOS 7D","Recomendação","Sugestão/dia"]
         df_csv = pd.DataFrame(registros)[cols_csv]
         csv_data = df_csv.to_csv(index=False, encoding="utf-8-sig", sep=";").encode("utf-8-sig")
         
