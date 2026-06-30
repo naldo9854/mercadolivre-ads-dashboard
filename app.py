@@ -124,7 +124,7 @@ if not st.session_state.access_token or not st.session_state.advertiser_lista:
         <img src="https://img.icons8.com/fluency/144/combo-chart.png" style="margin-bottom: 20px;"/>
         <h1 style="font-size: 28px; font-weight: 800; color: #0f172a; letter-spacing: -0.025em; margin-bottom: 10px;">Product Ads Intelligence</h1>
         <p style="color: #64748b; font-size: 15px; line-height: 1.6; margin-bottom: 24px;">
-            Plataforma executiva para análise de ciclo financeiro dinâmico, monitoramento de performance com base em ACOS e ROAS e sugestão automática de distribuição de verbas no Mercado Livre.
+            Plataforma executiva para análise de ciclo financeiro dinâmico, monitoramento de performance com base em ROAS e ROAS Objetivo e sugestão automática de distribuição de verbas no Mercado Livre.
         </p>
         <div style="background-color: #f8fafc; border-radius: 8px; padding: 16px; border: 1px solid #f1f5f9; text-align: left;">
             <h3 style="font-size: 14px; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.02em;">Como iniciar:</h3>
@@ -193,8 +193,9 @@ else:
             camp_ontem = buscar_campanhas_api(data_ontem_str, data_ontem_str, adv_id)
             camp_7d = buscar_campanhas_api(data_7d_ini_str, data_7d_fim_str, adv_id)
             
-            # Mapear ACOS 7D
-            acos_7d_map = {}
+            # Mapear ROAS 7D e Vendas 7D
+            roas_7d_map = {}
+            vendas_7d_map = {}
             total_cost_7d = 0.0
             total_revenue_7d = 0.0
             has_7d_data = False
@@ -204,28 +205,30 @@ else:
                 m_7d = c_7d.get("metrics", {})
                 custo_7d = float(m_7d.get("cost", 0) or 0)
                 receita_7d = float(m_7d.get("total_amount", 0) or 0)
-                acos_api_7d = m_7d.get("acos")
+                vendas_7d = int((m_7d.get("direct_units_quantity", 0) or 0) + (m_7d.get("indirect_units_quantity", 0) or 0))
                 
                 total_cost_7d += custo_7d
                 total_revenue_7d += receita_7d
                 if custo_7d > 0 or receita_7d > 0:
                     has_7d_data = True
                 
-                if acos_api_7d is not None and float(acos_api_7d) > 0:
-                    acos_7d_val = float(acos_api_7d)
+                if custo_7d > 0:
+                    roas_7d_val = receita_7d / custo_7d
                 elif receita_7d > 0:
-                    acos_7d_val = (custo_7d / receita_7d) * 100
+                    roas_7d_val = 9999.0 # Infinito (excelente)
                 else:
-                    acos_7d_val = None
-                acos_7d_map[c_id] = acos_7d_val
+                    roas_7d_val = None
+                
+                roas_7d_map[c_id] = roas_7d_val
+                vendas_7d_map[c_id] = vendas_7d
 
-            # ACOS 7D Geral da Loja (Consolidado)
-            if total_revenue_7d > 0:
-                acos_geral_7d = (total_cost_7d / total_revenue_7d) * 100
-            elif has_7d_data:
-                acos_geral_7d = None
+            # ROAS 7D Geral da Loja (Consolidado)
+            if total_cost_7d > 0:
+                roas_geral_7d = total_revenue_7d / total_cost_7d
+            elif total_revenue_7d > 0:
+                roas_geral_7d = 9999.0
             else:
-                acos_geral_7d = None
+                roas_geral_7d = None
             
             # Cálculos Financeiros
             verba_restante = verba_mensal - gasto_ciclo
@@ -270,27 +273,26 @@ else:
                 custo = float(m.get("cost", 0) or 0)
                 receita = float(m.get("total_amount", 0) or 0)
                 vendas = int((m.get("direct_units_quantity", 0) or 0) + (m.get("indirect_units_quantity", 0) or 0))
-                acos_api = m.get("acos")
-
-                if acos_api is not None and float(acos_api) > 0:
-                    acos_ontem = float(acos_api)
+                if custo > 0:
+                    roas_ontem = receita / custo
                 elif receita > 0:
-                    acos_ontem = (custo / receita) * 100
+                    roas_ontem = 9999.0 # Infinito (excelente)
                 else:
-                    acos_ontem = None
+                    roas_ontem = None
 
-                acos_7d = acos_7d_map.get(c.get("id"))
+                roas_7d = roas_7d_map.get(c.get("id"))
+                vendas_7d_val = vendas_7d_map.get(c.get("id"), 0)
 
                 # Regras de recomendação
-                if vendas == 0 and acos_7d is not None and acos_7d < 20.0:
+                if vendas == 0 and roas_7d is not None and roas_7d > 5.0:
                     rec = "🛡️ SUSTENTAR (Bom histórico)"
                 elif cliques > 50 and vendas == 0:
                     rec = "⚠️ ALERTA CONVERSÃO"
-                elif acos_7d is None:
+                elif roas_7d is None:
                     rec = "👀 ACOMPANHAR" if cliques > 0 else "👻 FANTASMA"
-                elif acos_7d < 10:
+                elif roas_7d > 8.0:
                     rec = "🚀 AUMENTAR ORÇAMENTO"
-                elif acos_7d <= 25:
+                elif roas_7d >= 4.0:
                     rec = "✅ MANTER"
                 else:
                     rec = "🔴 REDUZIR / PAUSAR"
@@ -300,10 +302,10 @@ else:
                     "Campanha": nome, "Status": status, "Orç. Atual": f"R$ {orcamento:,.2f}",
                     "Custo": round(custo, 2), "Receita": round(receita, 2),
                     "Cliques": cliques, "Vendas": vendas,
-                    "ACOS Ontem": f"{acos_ontem:.2f}%" if acos_ontem is not None else "N/A",
-                    "ACOS 7D": f"{acos_7d:.2f}%" if acos_7d is not None else "N/A",
+                    "ROAS Ontem": f"{roas_ontem:.2f}x" if roas_ontem is not None and roas_ontem != 9999.0 else "Excelente" if roas_ontem == 9999.0 else "N/A",
+                    "ROAS 7D": f"{roas_7d:.2f}x" if roas_7d is not None and roas_7d != 9999.0 else "Excelente" if roas_7d == 9999.0 else "N/A",
                     "Recomendação": rec, "Sugestão/dia": "—",
-                    "_acos_ontem": acos_ontem, "_acos_7d": acos_7d, "_vendas": vendas, "_custo": custo, "_receita": receita,
+                    "_roas_ontem": roas_ontem, "_roas_7d": roas_7d, "_vendas_7d": vendas_7d_val, "_vendas": vendas, "_custo": custo, "_receita": receita,
                 }
                 registros.append(reg)
                 all_campaign_records.append(reg)
@@ -317,15 +319,22 @@ else:
                 r["_sugestao_val"] = 0.0
                 rec = r["Recomendação"]
                 
-                # Definir pesos por Tiers de Performance
+                # Definir pesos por Tiers de Performance e ROAS/Vendas 7D
+                roas_val = r["_roas_7d"] if r["_roas_7d"] is not None else 0.0
+                if roas_val == 9999.0:
+                    roas_val = 50.0
+                vendas_7d_val = r.get("_vendas_7d", 0)
+                
+                weight_score = (roas_val * 2.0) + vendas_7d_val
+                
                 if "AUMENTAR" in rec or "SUSTENTAR" in rec:
-                    weight = 3.0
+                    weight = weight_score * 3.0
                     eligible = True
                 elif "MANTER" in rec:
-                    weight = 1.5
+                    weight = weight_score * 1.5
                     eligible = True
                 elif "ACOMPANHAR" in rec:
-                    weight = 0.5
+                    weight = weight_score * 0.5
                     eligible = True
                 else:
                     weight = 0.0
@@ -398,8 +407,12 @@ else:
             total_vendas_d1  = sum(r["_vendas"] for r in registros)
             total_cliques_d1 = sum(r["Cliques"] for r in registros)
 
-            roas_geral = total_receita_d1 / total_custo_d1 if total_custo_d1 > 0 else 0.0
-            acos_geral_str = "{:.2f}%".format((total_custo_d1 / total_receita_d1) * 100) if total_receita_d1 > 0 else "0.00%"
+            if total_custo_d1 > 0:
+                roas_geral = total_receita_d1 / total_custo_d1
+            elif total_receita_d1 > 0:
+                roas_geral = 9999.0
+            else:
+                roas_geral = 0.0
             conversion_rate = (total_vendas_d1 / total_cliques_d1) * 100 if total_cliques_d1 > 0 else 0.0
             cpc_medio = total_custo_d1 / total_cliques_d1 if total_cliques_d1 > 0 else 0.0
 
@@ -474,8 +487,8 @@ else:
                     <td style='text-align:right;'>R$ {r['Receita']:,.2f}</td>
                     <td style='text-align:right;'>{r['Cliques']:,}</td>
                     <td style='text-align:right;'>{r['Vendas']}</td>
-                    <td style='text-align:right; font-weight: 500;'>{r['ACOS Ontem']}</td>
-                    <td style='text-align:right; font-weight: 600; color: #1e3a8a;'>{r['ACOS 7D']}</td>
+                    <td style='text-align:right; font-weight: 500;'>{r['ROAS Ontem']}</td>
+                    <td style='text-align:right; font-weight: 600; color: #1e3a8a;'>{r['ROAS 7D']}</td>
                     <td style='text-align:center;'><span class='rec-badge' style='background:{bg};color:{fg};border:1px solid {border};'>{r['Recomendação']}</span></td>
                     <td style='text-align:right; font-weight:700; color:#2563eb;'>{r['Sugestão/dia']}</td>
                 </tr>
@@ -502,7 +515,7 @@ else:
                 "name": adv_nome,
                 "gasto_ontem": total_custo_d1,
                 "receita_ontem": total_receita_d1,
-                "acos_7d_geral": acos_geral_7d,
+                "roas_7d_geral": roas_geral_7d,
                 "ritmo": ritmo_label,
                 "ritmo_cor": ritmo_cor,
                 "ritmo_bg": ritmo_bg,
@@ -514,7 +527,6 @@ else:
                 "verba_diaria_resto": verba_diaria_resto,
                 "percentual_gasto": percentual_gasto,
                 "roas_geral": roas_geral,
-                "acos_geral_str": acos_geral_str,
                 "conversion_rate": conversion_rate,
                 "cpc_medio": cpc_medio,
                 "total_vendas_d1": total_vendas_d1,
@@ -530,19 +542,19 @@ else:
         tabs_contents_html = ""
 
         for i, loja in enumerate(lojas_dados):
-            acos_7d_val = loja["acos_7d_geral"]
-            if acos_7d_val is None:
+            roas_7d_val = loja["roas_7d_geral"]
+            if roas_7d_val is None:
                 border_class = "card-neutral"
                 status_farol = "⚪ Sem Dados"
-                acos_text = "N/A"
-            elif acos_7d_val > 25.0:
+                roas_text = "N/A"
+            elif roas_7d_val < 4.0:
                 border_class = "card-blown"
                 status_farol = "🔴 Estourado"
-                acos_text = f"{acos_7d_val:.2f}%"
+                roas_text = f"{roas_7d_val:.2f}x" if roas_7d_val != 9999.0 else "Excelente"
             else:
                 border_class = "card-healthy"
                 status_farol = "🟢 Saudável"
-                acos_text = f"{acos_7d_val:.2f}%"
+                roas_text = f"{roas_7d_val:.2f}x" if roas_7d_val != 9999.0 else "Excelente"
 
             # Card do painel global (Farol)
             lojas_cards_html += f"""
@@ -557,8 +569,8 @@ else:
                   <span class="client-metric-val">R$ {loja['gasto_ontem']:,.2f}</span>
                 </div>
                 <div class="client-metric-row">
-                  <span>ACOS 7D Geral:</span>
-                  <span class="client-metric-val" style="color: {'#ef4444' if acos_7d_val and acos_7d_val > 25.0 else '#10b981' if acos_7d_val else '#64748b'};">{acos_text}</span>
+                  <span>ROAS 7D Geral:</span>
+                  <span class="client-metric-val" style="color: {'#ef4444' if roas_7d_val and roas_7d_val < 4.0 else '#10b981' if roas_7d_val else '#64748b'};">{roas_text}</span>
                 </div>
                 <div class="client-metric-row">
                   <span>Pacing:</span>
@@ -657,12 +669,8 @@ else:
                   <div style="display: flex; flex-direction: column; gap: 8px;">
                     <div style="display: flex; gap: 16px; align-items: center; margin-top: 6px;">
                       <div>
-                        <span style="font-size: 8px; font-weight:700; color:#64748b; text-transform:uppercase;">ROAS Ontem</span>
-                        <div style="font-size: 20px; font-weight:700; color:#2563eb;">{loja['roas_geral']:.2f}x</div>
-                      </div>
-                      <div style="border-left: 1px solid #e2e8f0; padding-left: 16px;">
-                        <span style="font-size: 8px; font-weight:700; color:#64748b; text-transform:uppercase;">ACOS Ontem</span>
-                        <div style="font-size: 20px; font-weight:700; color:#0f172a;">{loja['acos_geral_str']}</div>
+                        <span style="font-size: 8px; font-weight:700; color:#64748b; text-transform:uppercase;">ROAS Geral (Ontem)</span>
+                        <div style="font-size: 20px; font-weight:700; color:#2563eb;">{f"{loja['roas_geral']:.2f}x" if loja['roas_geral'] != 9999.0 else 'Excelente'}</div>
                       </div>
                     </div>
                   </div>
@@ -683,7 +691,7 @@ else:
               <div class="two-col-layout" style="margin-bottom: 24px;">
                 <div class="content-card">
                   <div class="section-headline">🍩 Distribuição de Verba Diária</div>
-                  <div class="section-subtext">Alocação recomendada proporcional à performance (ACOS + volume de vendas)</div>
+                  <div class="section-subtext">Alocação recomendada proporcional à performance (ROAS + volume de vendas)</div>
                   {loja['grafico_html'] if loja['grafico_html'] else '<p style="color:#94a3b8;font-size:12px;padding:60px 0;text-align:center">Nenhuma campanha com dados de ontem.</p>'}
                 </div>
                 
@@ -732,7 +740,7 @@ else:
               <!-- Tabela de Diagnóstico Completo -->
               <div class="content-card table-card" style="margin-bottom: 24px;">
                 <div class="section-headline">🎯 Diagnóstico Individual de Campanhas — {loja['name']}</div>
-                <div class="section-subtext">Auditoria individualizada de ontem com recomendações baseadas em ACOS e volume comercial</div>
+                <div class="section-subtext">Auditoria individualizada de ontem com recomendações baseadas em ROAS e volume comercial</div>
                 
                 <table>
                   <thead>
@@ -744,8 +752,8 @@ else:
                       <th style="text-align:right;">Receita</th>
                       <th style="text-align:right;">Cliques</th>
                       <th style="text-align:right;">Vendas</th>
-                      <th style="text-align:right;">ACOS Ontem</th>
-                      <th style="text-align:right;">ACOS 7D</th>
+                      <th style="text-align:right;">ROAS Ontem</th>
+                      <th style="text-align:right;">ROAS 7D</th>
                       <th style="text-align:center;">Ação Recomendada</th>
                       <th style="text-align:right;">Sugestão/Dia</th>
                     </tr>
@@ -1124,7 +1132,7 @@ else:
 
         # Exportar CSV consolidado no Streamlit
         if all_campaign_records:
-            cols_csv = ["Cliente", "Campanha", "Status", "Orç. Atual", "Custo", "Receita", "Cliques", "Vendas", "ACOS Ontem", "ACOS 7D", "Recomendação", "Sugestão/dia"]
+            cols_csv = ["Cliente", "Campanha", "Status", "Orç. Atual", "Custo", "Receita", "Cliques", "Vendas", "ROAS Ontem", "ROAS 7D", "Recomendação", "Sugestão/dia"]
             df_csv = pd.DataFrame(all_campaign_records)[cols_csv]
             csv_data = df_csv.to_csv(index=False, encoding="utf-8-sig", sep=";").encode("utf-8-sig")
             
